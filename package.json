@@ -20,7 +20,10 @@
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
-    "axios": "^1.18.1"
+    "axios": "^1.18.1",
+    "dotenv": "^17.4.2",
+    "nodejs-whisper": "^0.3.0",
+    "ws": "^8.21.1"
   },
   "devDependencies": {
     "@electron-toolkit/eslint-config": "^2.1.0",

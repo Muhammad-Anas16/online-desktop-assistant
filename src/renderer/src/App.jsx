@@ -1,121 +1,89 @@
-import { useEffect, useRef, useState } from "react";
-import { createVoiceSensor } from "./utils/voiceSensor";
-import { getAIReply, speechToText } from "./utils/API";
-import { playAssistantOutput } from "./utils/audioPlayer";
+import { useEffect, useRef, useState } from 'react'
+import { createMicStreamer } from './utils/micStream'
+// import 'dotenv/config'
 
 export default function App() {
-  const voiceRef = useRef(null);
-  const sessionActiveRef = useRef(false);
-
-  const [status, setStatus] = useState("Idle");
-  const [transcript, setTranscript] = useState("");
-  const [reply, setReply] = useState("");
-  const [error, setError] = useState("");
-  const [enabled, setEnabled] = useState(false);
+  const micRef = useRef(null)
+  const [status, setStatus] = useState('Idle')
+  const [partialText, setPartialText] = useState('')
+  const [finalTurns, setFinalTurns] = useState([])
+  const [error, setError] = useState('')
+  const [enabled, setEnabled] = useState(false)
 
   useEffect(() => {
-    voiceRef.current = createVoiceSensor({
-      onStatus: setStatus,
-      onSpeechStart: () => {
-        setError("");
-      },
-      onSpeechEnd: () => {
-        // status is handled by the module
-      },
+    micRef.current = createMicStreamer({
       onError: (err) => {
-        console.error(err);
-        setError(err?.message || "Voice sensor error");
-        setStatus("Error");
-      },
-      onAudio: async (blob) => {
-        try {
-          setStatus("Transcribing...");
-          const stt = await speechToText(blob);
+        console.error(err)
+        setError(err?.message || 'Microphone error')
+        setStatus('Error')
+      }
+    })
 
-          if (!stt.success) {
-            throw new Error(stt.error || "STT failed");
-          }
-
-          const userText = (stt.text || "").trim();
-          setTranscript(userText);
-
-          if (!userText) {
-            setStatus("No speech detected");
-            return;
-          }
-
-          setStatus("Thinking...");
-          const ai = await getAIReply(userText);
-
-          if (!ai.success) {
-            throw new Error(ai.error || "AI reply failed");
-          }
-
-          const aiText = (ai.reply || "").trim();
-          setReply(aiText);
-
-          setStatus("Playing reply...");
-          await playAssistantOutput({ text: aiText });
-
-          if (sessionActiveRef.current) {
-            setStatus("Listening...");
-            await voiceRef.current.start();
-          }
-        } catch (err) {
-          console.error(err);
-          setError(err?.message || "Processing failed");
-          setStatus("Error");
-
-          if (sessionActiveRef.current) {
-            try {
-              await voiceRef.current.start();
-            } catch {
-              // ignore
-            }
-          }
+    const offTranscript = window.api.onTranscript(({ transcript, endOfTurn }) => {
+      if (endOfTurn) {
+        if (transcript) {
+          setFinalTurns((prev) => [...prev, transcript])
         }
-      },
-    });
+        setPartialText('')
+      } else {
+        setPartialText(transcript)
+      }
+    })
+
+    const offStatus = window.api.onStatus((s) => setStatus(s))
+    const offError = window.api.onError((msg) => {
+      setError(msg)
+      setStatus('Error')
+    })
 
     return () => {
-      sessionActiveRef.current = false;
-      voiceRef.current?.stop();
-      window.speechSynthesis?.cancel();
-    };
-  }, []);
+      offTranscript?.()
+      offStatus?.()
+      offError?.()
+      micRef.current?.stop()
+      window.api.stopTranscription()
+    }
+  }, [])
 
   const startSession = async () => {
-    setError("");
-    setTranscript("");
-    setReply("");
-    sessionActiveRef.current = true;
-    setEnabled(true);
+    setError('')
+    setFinalTurns([])
+    setPartialText('')
+    setEnabled(true)
+    window.api.startTranscription()
+    await micRef.current?.start()
+  }
 
-    await voiceRef.current?.start();
-  };
+  const stopSession = () => {
+    setEnabled(false)
+    micRef.current?.stop()
+    window.api.stopTranscription()
+    setStatus('Idle')
+  }
 
   return (
-    <div style={{ padding: 24, fontFamily: "Arial, sans-serif" }}>
-      <h1>AI Voice Assistant</h1>
+    <div style={{ padding: 24, fontFamily: 'Arial, sans-serif' }}>
+      <h1>AI Voice Assistant (AssemblyAI Streaming)</h1>
 
       <button onClick={startSession} disabled={enabled}>
         Enable Voice
+      </button>
+      <button onClick={stopSession} disabled={!enabled} style={{ marginLeft: 8 }}>
+        Stop
       </button>
 
       <p>
         <strong>Status:</strong> {status}
       </p>
-      {error ? <p style={{ color: "red" }}>{error}</p> : null}
+      {error ? <p style={{ color: 'red' }}>{error}</p> : null}
 
       <div style={{ marginTop: 16 }}>
         <h3>Transcript</h3>
-        <p>{transcript || "No transcript yet."}</p>
-      </div>
-
-      <div style={{ marginTop: 16 }}>
-        <h3>AI Reply</h3>
-        <p>{reply || "No reply yet."}</p>
+        <p style={{ whiteSpace: 'pre-wrap' }}>
+          {finalTurns.join(' ')}
+          {partialText ? <span style={{ color: '#999' }}> {partialText}</span> : null}
+        </p>
       </div>
     </div>
-  );
+  )
 }
